@@ -19,20 +19,9 @@ import { Audio } from 'expo-av';
 import MultimodalInput from './components/MultimodalInput';
 import WeatherCard from './components/WeatherCard';
 import LoadingSpinner from './components/LoadingSpinner';
-import { analyzeCrop, fetchLiveWeather, generateTTS, voiceAnalyze, normalizeAudioUrl } from './services/api';
+import { analyzeCrop, fetchLiveWeather, generateTTS, voiceAnalyze } from './services/api';
 
 const CHAT_STORAGE_KEY = 'farmai_chat_messages';
-
-const isStaleAudioUrl = (url) => {
-  if (!url) return true;
-  return (
-    url.includes('192.168.') ||
-    url.includes('localhost') ||
-    url.includes('127.0.0.1') ||
-    url.includes(':8000') ||
-    url.startsWith('http://')
-  );
-};
 
 const containsUrdu = (text) => {
   if (!text) return false;
@@ -234,6 +223,129 @@ function MessageImage({ uri, isImageOnly }) {
   );
 }
 
+function translateLocationToUrdu(city, country) {
+  const mapping = {
+    'multan': 'ملتان',
+    'lahore': 'لاہور',
+    'karachi': 'کراچی',
+    'islamabad': 'اسلام آباد',
+    'rawalpindi': 'راولپنڈی',
+    'faisalabad': 'فیصل آباد',
+    'peshawar': 'پشاور',
+    'quetta': 'کوئٹہ',
+    'bahawalpur': 'بہاولپور',
+    'sahiwal': 'ساہیوال',
+    'gujranwala': 'گوجرانوالہ',
+    'hyderabad': 'حیدرآباد',
+    'sukkur': 'سکھر',
+    'dg khan': 'ڈیرہ غازی خان',
+    'dera ghazi khan': 'ڈیرہ غازی خان',
+    'pakistan': 'پاکستان'
+  };
+
+  const cleanCity = (city || '').trim().toLowerCase();
+  const cleanCountry = (country || '').trim().toLowerCase();
+
+  const urduCity = mapping[cleanCity] || city || '';
+  const urduCountry = mapping[cleanCountry] || country || '';
+
+  if (urduCity && urduCountry) {
+    return `${urduCity}، ${urduCountry}`;
+  }
+  return urduCity || urduCountry || 'منتقل مقام';
+}
+
+const ROMAN_URDU_TTS_LINES = [
+  "Aapke jawab ko awaz mein badla ja raha hai...",
+  "KisaanAI voice response tayyar kar raha hai...",
+  "Awaz ko clear aur natural banaya ja raha hai...",
+  "Bas ek lamha, jawab sunanay ke liye tayyar hai..."
+];
+
+const URDU_SCRIPT_TTS_LINES = [
+  "آپ کے جواب کو آواز میں بدلا جا رہا ہے...",
+  "کسان AI وائس ریسپانس تیار کر رہا ہے...",
+  "آواز کو صاف اور قدرتی بنایا جا رہا ہے...",
+  "بس ایک لمحہ، جواب سنانے کے لیے تیار ہے..."
+];
+
+const ENGLISH_TTS_LINES = [
+  "Turning your answer into voice...",
+  "KisaanAI is preparing the voice response...",
+  "Making the audio clear and natural...",
+  "Almost ready to play your answer..."
+];
+
+function TTSLoadingText({ aiText }) {
+  let lang = 'roman_urdu';
+  if (aiText) {
+    if (/[\u0600-\u06FF]/.test(aiText)) {
+      lang = 'urdu';
+    } else {
+      const textLower = aiText.toLowerCase();
+      const words = textLower.match(/\b[a-z']+\b/g) || [];
+      
+      const englishWords = [
+        "crop", "plant", "leaf", "leaves", "pest", "fertilizer", "soil", 
+        "irrigation", "disease", "fungus", "water", "spray", "hello", "hi", 
+        "help", "problem", "weather", "rain", "temperature", "humidity",
+        "my", "is", "the", "are", "have", "has", "of", "and", "in", "to", "it", "you"
+      ];
+      
+      const romanUrduWords = [
+        "meri", "mera", "mere", "fasal", "kapas", "kapaas", "gandum", "aam", 
+        "patton", "pattay", "peelay", "nishan", "daag", "masla", "pani", 
+        "khad", "keera", "keeray", "bimari", "spray", "zameen", "mitti",
+        "yeh", "hai", "hain", "ke", "ki", "ka", "aur", "pe", "par", "ko"
+      ];
+      
+      let englishHits = 0;
+      let romanUrduHits = 0;
+      
+      for (const word of words) {
+        if (englishWords.includes(word)) englishHits++;
+        if (romanUrduWords.includes(word)) romanUrduHits++;
+      }
+      
+      if (englishHits > romanUrduHits) {
+        lang = 'english';
+      } else {
+        lang = 'roman_urdu';
+      }
+    }
+  }
+
+  let lines = ROMAN_URDU_TTS_LINES;
+  if (lang === 'urdu') {
+    lines = URDU_SCRIPT_TTS_LINES;
+  } else if (lang === 'english') {
+    lines = ENGLISH_TTS_LINES;
+  }
+
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setIndex((prevIndex) => {
+        if (prevIndex < lines.length - 1) {
+          return prevIndex + 1;
+        }
+        return prevIndex;
+      });
+    }, 3000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [lines]);
+
+  return (
+    <Text style={styles.ttsButtonText}>
+      {lines[index]}
+    </Text>
+  );
+}
+
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('Home');
   const [result, setResult] = useState(null);
@@ -245,6 +357,8 @@ export default function App() {
   const [ttsStatus, setTtsStatus] = useState({});
   const soundRef = useRef(null);
   const [loadingMessage, setLoadingMessage] = useState(null);
+  const [lastQueryText, setLastQueryText] = useState('');
+  const [isVoiceLoading, setIsVoiceLoading] = useState(false);
 
   // Unmount cleanup for audio
   useEffect(() => {
@@ -289,21 +403,14 @@ export default function App() {
 
     try {
       let finalAudioUrl = audioUrl;
-      if (isStaleAudioUrl(finalAudioUrl)) {
-        console.log("Stale or missing audio URL detected. Calling generateTTS for text:", text, "hint:", languageHint);
+      if (!finalAudioUrl) {
+        console.log("Calling generateTTS for text:", text, "hint:", languageHint);
         const res = await generateTTS(text, languageHint);
         console.log("TTS URL received:", res.audio_url);
         finalAudioUrl = res.audio_url;
       } else {
         console.log("Reusing pre-generated audio URL:", finalAudioUrl);
       }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        shouldRouteThroughEarpieceAndroid: false,
-        staysActiveInBackground: false,
-      }).catch(e => console.log("Error setting audio mode:", e));
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: finalAudioUrl },
@@ -362,13 +469,8 @@ export default function App() {
               const place = geocode[0];
               const city = place.city || place.district || place.subregion || place.region || '';
               const country = place.country || '';
-              if (city && country) {
-                setCurrentLocationName(`${city}، ${country}`);
-              } else if (city || country) {
-                setCurrentLocationName(city || country);
-              } else {
-                setCurrentLocationName('منتقل مقام');
-              }
+              const urduLocation = translateLocationToUrdu(city, country);
+              setCurrentLocationName(urduLocation);
             } else {
               setCurrentLocationName('منتقل مقام');
             }
@@ -404,14 +506,7 @@ export default function App() {
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
-            const sanitized = parsed.map(msg => {
-              if (msg.audioUrl && isStaleAudioUrl(msg.audioUrl)) {
-                const { audioUrl, ...rest } = msg;
-                return rest;
-              }
-              return msg;
-            });
-            setChatMessages(sanitized);
+            setChatMessages(parsed);
           }
         }
       } catch (e) {
@@ -481,6 +576,8 @@ export default function App() {
     }
 
     const isVoice = !!inputData.voiceUri;
+    setIsVoiceLoading(isVoice);
+    setLastQueryText(inputData.text || '');
 
     const userMsg = {
       id: Date.now().toString(),
@@ -563,7 +660,7 @@ export default function App() {
       }, 200);
 
       // Auto-play the returned audio if voice input and audio url is available
-      if (isVoice && result?.audio_url && !isStaleAudioUrl(result.audio_url)) {
+      if (isVoice && result?.audio_url) {
         console.log("Auto-playing voice response...", result.audio_url);
         setTimeout(async () => {
           try {
@@ -572,13 +669,6 @@ export default function App() {
               await soundRef.current.unloadAsync().catch(() => {});
               soundRef.current = null;
             }
-
-            await Audio.setAudioModeAsync({
-              allowsRecordingIOS: false,
-              playsInSilentModeIOS: true,
-              shouldRouteThroughEarpieceAndroid: false,
-              staysActiveInBackground: false,
-            }).catch(e => console.log("Error setting audio mode:", e));
 
             const { sound } = await Audio.Sound.createAsync(
               { uri: result.audio_url },
@@ -743,8 +833,8 @@ export default function App() {
 
       <KeyboardAvoidingView
         style={styles.chatBody}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 60}
       >
         {/* Messages Area */}
         <ScrollView
@@ -840,7 +930,11 @@ export default function App() {
                       disabled={isTtsLoading}
                       activeOpacity={0.7}
                     >
-                      <Text style={styles.ttsButtonText}>{ttsButtonText}</Text>
+                      {isTtsLoading ? (
+                        <TTSLoadingText aiText={msg.text} />
+                      ) : (
+                        <Text style={styles.ttsButtonText}>{ttsButtonText}</Text>
+                      )}
                     </TouchableOpacity>
                   </View>
 
@@ -857,7 +951,14 @@ export default function App() {
             return null;
           })}
 
-          {loading && <LoadingSpinner message={loadingMessage} />}
+          {loading && (
+            <LoadingSpinner
+              message={loadingMessage}
+              queryText={lastQueryText}
+              isVoice={isVoiceLoading}
+              chatMessages={chatMessages}
+            />
+          )}
         </ScrollView>
 
         {/* Bottom Input */}

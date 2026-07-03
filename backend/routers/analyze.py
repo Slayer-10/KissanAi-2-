@@ -18,6 +18,7 @@ from agents.execution_agent import execute_actions
 from agents.recovery_agent import apply_recovery
 from agents.outcome_agent import format_outcome
 from services.gemini_service import generate_safe_tts_summary
+from services.mandi_service import is_mandi_rate_query, handle_mandi_query
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,45 @@ async def analyze_crop(
         parsed["image_mime"] = image_mime
         dt_parse = (time.perf_counter() - t_parse_start) * 1000
         logger.info(f"[Timing] input_parser: {dt_parse:.1f}ms")
+
+        # ── Mandi Rate Intercept ─────────────────────────────────────────────────
+        query_text = parsed.get("text") or text or ""
+        if is_mandi_rate_query(query_text):
+            logger.info("[MANDI] intercepted in /analyze")
+            mandi_result = handle_mandi_query(query_text, latitude, longitude)
+            return {
+                "status": "success",
+                "tts_summary": mandi_result["tts_summary"],
+                "input_summary": {
+                    "text": parsed.get("text"),
+                    "crop": parsed.get("crop"),
+                    "image_received": False,
+                    "location_received": parsed.get("has_location", False),
+                    "language_hint": parsed.get("language_hint", "unknown"),
+                },
+                "diagnosis": {},
+                "farmer_response": mandi_result["farmer_response"],
+                "action_chain": [],
+                "agent_logs": [],
+                "before_after": {},
+                "weather": {},
+                "irrigation_advice": {"heading": "", "message": "", "based_on": "weather"},
+                "cost_summary": {},
+                "contradictions": [],
+                "recovery": {"status": "stable", "actions": []},
+                "gemini_status": {
+                    "used": False,
+                    "success": True,
+                    "error_type": None,
+                    "model_used": None,
+                    "available_models": [],
+                    "tested_models": [],
+                    "working_model": None,
+                },
+                "rag_status": None,
+                "mandi_status": mandi_result.get("mandi_status"),
+            }
+        # ── End Mandi Rate Intercept ──────────────────────────────────────────────
 
         # 2. DiagnosisAgent
         diagnosis = generate_mock_diagnosis(parsed)

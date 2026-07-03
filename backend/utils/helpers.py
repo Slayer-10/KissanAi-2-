@@ -98,7 +98,10 @@ def is_agriculture_related(text: str, has_image: bool) -> bool:
         "کھاد", "پانی", "زمین", "مٹی", "سپرے", "موسم", "بارش", "جڑ", "پھل",
         "gandum", "kapas", "kapaas", "aam", "fasal", "podon", "poda", "patton", 
         "patte", "pattay", "bemari", "keera", "keeray", "khaad", "pani", 
-        "zameen", "mitti", "spray", "mosam", "barish", "jar", "phul"
+        "zameen", "mitti", "spray", "mosam", "barish", "jar", "phul",
+        # Mandi / market related keywords to capture rate/price queries
+        "mandi", "منڈی", "rate", "rates", "price", "prices", "bhav", "bhaav", "bhao",
+        "قیمت", "قیمتیں", "نرخ", "نرخیں", "ریٹ",
     ]
 
     for kw in agri_keywords:

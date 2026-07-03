@@ -153,6 +153,20 @@ HEADINGS_MAP = {
         ("recommended action", "Recommended Action:"),
         ("weather note", "Weather Note:"),
         ("next step", "Next Step:")
+    ],
+    "punjabi": [
+        ("ممکنہ مسئلہ", "ممکنہ مسئلہ:"),
+        ("خطرے دی سطح", "خطرے دی سطح:"),
+        ("تجویز کیتا گیا عمل", "تجویز کیتا گیا عمل:"),
+        ("موسم دا خیال", "موسم دا خیال:"),
+        ("اگلا قدم", "اگلا قدم:")
+    ],
+    "siraiki": [
+        ("ممکنہ مسئلہ", "ممکنہ مسئلہ:"),
+        ("خطرے دی سطح", "خطرے دی سطح:"),
+        ("تجویز کیتا گیا عمل", "تجویز کیتا گیا عمل:"),
+        ("موسم دا خیال", "موسم دا خیال:"),
+        ("اگلا قدم", "اگلا قدم:")
     ]
 }
 
@@ -224,7 +238,7 @@ def generate_safe_tts_summary(farmer_response: str, language_hint: str) -> str:
     lang = (language_hint or "ur").strip().lower()
     if lang in ("urdu", "unknown"):
         lang = "ur"
-    elif lang not in ("roman_urdu", "english"):
+    elif lang not in ("roman_urdu", "english", "punjabi", "siraiki"):
         lang = "ur"
         
     headings_list = HEADINGS_MAP.get(lang, HEADINGS_MAP["ur"])
@@ -252,6 +266,14 @@ def generate_safe_tts_summary(farmer_response: str, language_hint: str) -> str:
             ("tajweez kardah amal", "Tajweez Kardah Amal:", 3),
             ("mosam ka khayal", "Mosam ka Khayal:", 1),
             ("agla qadam", "Agla Qadam:", 1)
+        ]
+    elif lang in ("punjabi", "siraiki"):
+        expected_headings = [
+            ("ممکنہ مسئلہ", "ممکنہ مسئلہ:", 1),
+            ("خطرے دی سطح", "خطرے دی سطح:", 1),
+            ("تجویز کیتا گیا عمل", "تجویز کیتا گیا عمل:", 3),
+            ("موسم دا خیال", "موسم دا خیال:", 1),
+            ("اگلا قدم", "اگلا قدم:", 1)
         ]
     else: # english
         expected_headings = [
@@ -293,6 +315,8 @@ def is_too_short_or_invalid(tts_summary: str, lang: str, has_headings: bool) -> 
     word_count = len(tts_summary.split())
     if word_count < 20:
         return True
+        
+
         
     if has_headings:
         headings_list = HEADINGS_MAP.get(lang, HEADINGS_MAP["ur"])
@@ -532,7 +556,7 @@ def generate_gemini_farmer_response(
         language_hint = parsed_input.get("language_hint", "ur") if parsed_input else "ur"
         if language_hint in ("ur", "urdu"):
             language_hint = "ur"
-        elif language_hint not in ("roman_urdu", "english"):
+        elif language_hint not in ("roman_urdu", "english", "punjabi", "siraiki"):
             language_hint = "ur"
 
         if language_hint == "roman_urdu":
@@ -554,6 +578,28 @@ def generate_gemini_farmer_response(
                 "Recommended Action:\n"
                 "Weather Note:\n"
                 "Next Step:"
+            )
+        elif language_hint == "punjabi":
+            lang_instruction = (
+                "The user has spoken in Punjabi. You MUST reply ONLY in simple Punjabi (using Shahmukhi/Urdu script). Do NOT reply in Urdu or English or Roman Urdu.\n"
+                "Use normal daily-use farmer-friendly Punjabi wording. Avoid difficult, poetic, rare, or overly pure Punjabi words. Do NOT use markdown bold formatting like asterisks (**) for headings or text.\n"
+                "Use these exact headings in the detailed_response:\n"
+                "ممکنہ مسئلہ:\n"
+                "خطرے دی سطح:\n"
+                "تجویز کیتا گیا عمل:\n"
+                "موسم دا خیال:\n"
+                "اگلا قدم:"
+            )
+        elif language_hint == "siraiki":
+            lang_instruction = (
+                "The user has spoken in Siraiki. You MUST reply ONLY in simple Siraiki (using Shahmukhi/Urdu script). Do NOT reply in Urdu or English or Roman Urdu.\n"
+                "Use normal daily-use farmer-friendly Siraiki wording. Avoid difficult, poetic, rare, or overly pure Siraiki words. Do NOT use markdown bold formatting like asterisks (**) for headings or text.\n"
+                "Use these exact headings in the detailed_response:\n"
+                "ممکنہ مسئلہ:\n"
+                "خطرے دی سطح:\n"
+                "تجویز کیتا گیا عمل:\n"
+                "موسم دا خیال:\n"
+                "اگلا قدم:"
             )
         else: # ur
             lang_instruction = (
@@ -580,7 +626,7 @@ def generate_gemini_farmer_response(
             f"   - {lang_instruction}\n"
             "2. tts_summary:\n"
             "   - This is a medium-length spoken summary for audio (around 90 to 150 words maximum).\n"
-            "   - It must summarize each major heading/section from detailed_response separately.\n"
+            "   - It must summarize each major heading/section from detailed_response separately and follow the specified structures with headings.\n"
             "   - It should NOT compress the whole answer into only 2-3 sentences.\n"
             "   - It must follow the same language style as the user.\n"
             "   - It MUST use the following spoken structures based on language style:\n"
@@ -602,6 +648,18 @@ def generate_gemini_farmer_response(
             "       Recommended Action: [two to three short action sentences]\n"
             "       Weather Note: [one short sentence]\n"
             "       Next Step: [one short sentence]\n"
+            "     * Punjabi input: Use simple Punjabi in Shahmukhi/Urdu script and this structure:\n"
+            "       ممکنہ مسئلہ: [one short sentence in Punjabi]\n"
+            "       خطرے دی سطح: [one short sentence in Punjabi]\n"
+            "       تجویز کیتا گیا عمل: [two to three short action sentences in Punjabi]\n"
+            "       موسم دا خیال: [one short sentence in Punjabi]\n"
+            "       اگلا قدم: [one short sentence in Punjabi]\n"
+            "     * Siraiki input: Use simple Siraiki in Shahmukhi/Urdu script and this structure:\n"
+            "       ممکنہ مسئلہ: [one short sentence in Siraiki]\n"
+            "       خطرے دی سطح: [one short sentence in Siraiki]\n"
+            "       تجویز کیتا گیا عمل: [two to three short action sentences in Siraiki]\n"
+            "       موسم دا خیال: [one short sentence in Siraiki]\n"
+            "       اگلا قدم: [one short sentence in Siraiki]\n"
             "   - It must avoid markdown, bullets, numbering, brackets, parentheses, percent signs, special characters, and technical abbreviations. Keep wording natural and spoken.\n\n"
             "CRITICAL RULE FOR IRRELEVANT INPUTS (TEXT OR IMAGES):\n"
             "- If the user asks an unrelated question (politics, jokes, movies, etc.) OR if the uploaded image is completely blank, solid color, black, or not related to crops, plants, pests, farming, or agriculture (e.g., a person, a car, or a blank screen), you MUST politely refuse.\n"
@@ -847,3 +905,59 @@ def generate_gemini_farmer_response(
             "key_index_used": rotation_res.get("key_index_used"),
             "attempts": rotation_res.get("attempts")
         }
+
+
+def convert_to_roman_fallback_gemini(text: str, lang: str) -> str:
+    """
+    Use Gemini to dynamically convert the actual Punjabi/Siraiki tts_summary
+    into easy speakable Roman Punjabi/Siraiki. Preserves meaning, structure,
+    headings, crop details, disease names, and advice.
+    Uses a short timeout and returns the original text on failure.
+    """
+    from services.key_manager import run_with_key_rotation
+    import google.generativeai as genai
+    import re
+
+    def _execute_roman(api_key: str) -> dict:
+        if not api_key:
+            return {"success": False, "text": text}
+        try:
+            available_models = get_available_gemini_models(api_key)
+            selected_model = "models/gemini-2.5-flash"
+            if available_models:
+                selected_model = available_models[0]
+
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(selected_model)
+
+            prompt = (
+                f"You are a helpful language assistant.\n"
+                f"Your task is to transliterate the following {lang} text (written in Shahmukhi/Urdu script) "
+                f"into easy, speakable Roman {lang} (using English/Latin alphabet).\n"
+                f"IMPORTANT RULES:\n"
+                f"- Preserve the EXACT same meaning, structure, headings, crop names, disease names, weather advice, and spray/water/fertilizer guidance.\n"
+                f"- If the text has headings like 'ممکنہ مسئلہ:', 'خطرے دی سطح:', etc., transliterate them too (e.g. 'Mumkin Masla:', 'Khatray di Satah:').\n"
+                f"- Keep the same length and detail level. Do NOT shorten or summarize.\n"
+                f"- Make it simple, natural, and friendly for farmers.\n"
+                f"- Do not add any intro/outro text. Return ONLY the Roman transliteration.\n\n"
+                f"Text:\n{text}"
+            )
+
+            # Use a short timeout of 5 seconds
+            response = model.generate_content(prompt, request_options={"timeout": 5.0})
+            roman_text = response.text.strip() if response and hasattr(response, "text") else ""
+            if roman_text and len(roman_text) > 10:
+                # Basic validation: ensure it's mostly Latin script
+                if not re.search(r"[\u0600-\u06FF]", roman_text):
+                    return {"success": True, "text": roman_text}
+            return {"success": False, "text": text}
+        except Exception as exc:
+            logger.warning("Gemini Roman conversion failed or timed out: %s", exc)
+            return {"success": False, "text": text}
+
+    # Execute with key rotation (CHAT pool)
+    res = run_with_key_rotation("CHAT", _execute_roman)
+    if res.get("success"):
+        return res["result"]["text"]
+    # On failure, return the original text as-is (the retry will use it directly)
+    return text

@@ -34,7 +34,10 @@ export default function WeatherCard({ weatherData, locationName, irrigationAdvic
   let sprayIcon = 'ℹ️';
   let sprayText = 'موسم کی معلومات دستیاب نہیں، پانی یا سپرے سے پہلے مقامی موسم ضرور چیک کریں';
 
-  if (hasWeatherInfo || !isMock) {
+  if (weather.spray_advice?.message) {
+    sprayIcon = weather.spray_safe === false ? '⚠️' : '✅';
+    sprayText = weather.spray_advice.message;
+  } else if (hasWeatherInfo || !isMock) {
     if (weather.spray_safe === false || weather.rain_expected === true) {
       sprayIcon = '⚠️';
       sprayText = 'بارش کی وجہ سے سپرے مؤخر کریں';
@@ -49,8 +52,13 @@ export default function WeatherCard({ weatherData, locationName, irrigationAdvic
   let waterText =
     'موسم کی معلومات دستیاب نہیں، پانی یا سپرے سے پہلے مقامی موسم ضرور چیک کریں';
 
-  // Use backend irrigation_advice.message if provided
-  if (irrigationAdvice?.message) {
+  // Use backend irrigation_advice if provided in weatherData, or fallback to the prop irrigationAdvice
+  if (weather.irrigation_advice?.message) {
+    const prob24 = weather.max_rain_probability_24h ?? 0;
+    const prob48 = weather.max_rain_probability_48h ?? 0;
+    waterIcon = (prob24 > 30 || prob48 > 30) ? '🌧️' : '💧';
+    waterText = weather.irrigation_advice.message;
+  } else if (irrigationAdvice?.message) {
     waterIcon = '💧';
     waterText = irrigationAdvice.message;
   } else if (hasWeatherInfo) {

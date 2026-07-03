@@ -209,7 +209,7 @@ def format_outcome(
         language_hint = parsed_input.get("language_hint", "ur") if parsed_input else "ur"
         if language_hint in ("ur", "urdu"):
             language_hint = "ur"
-        elif language_hint not in ("roman_urdu", "english"):
+        elif language_hint not in ("roman_urdu", "english", "punjabi", "siraiki"):
             language_hint = "ur"
 
         # ---- Farmer response (Urdu) — always non-empty ----
@@ -264,6 +264,10 @@ def format_outcome(
                     farmer_response = "یہ سسٹم صرف فصل، پودوں کی بیماری، کیڑے، کھاد، پانی، موسم، اور زرعی مسائل کے لیے بنایا گیا ہے۔ براہ کرم اپنی فصل کا مسئلہ، تصویر، یا وائس نوٹ بھیجیں۔"
                 elif language_hint == "roman_urdu":
                     farmer_response = "Yeh system sirf faslon, podon ki bemari, keeron, khaad, pani, mosam, aur zaraati masail ke liye banaya gaya hai. Barah-e-karam apni fasal ka masla, tasveer, ya voice note bhejein."
+                elif language_hint == "punjabi":
+                    farmer_response = "ایہ سسٹم صرف فصل، پودیاں دی بیماری، کیڑے، کھاد، پانی، موسم تے زرعی مسائل لئی بنایا گیا اے۔ مہربانی کر کے اپنی فصل دا مسئلہ، تصویر یا وائس نوٹ بھیجو۔"
+                elif language_hint == "siraiki":
+                    farmer_response = "ایہ سسٹم صرف فصلاں، بوٹیاں دی بیماری، کیڑے، کھاد، پانی، موسم تے زرعی مسائل سانگے بنڑایا گیا اے۔ مہربانی کر تے اپنڑی فصل دا مسئلہ، تصویر یا وائس نوٹ بھیجو۔"
                 else: # english
                     farmer_response = "This system is only built for crops, plant diseases, pests, fertilizer, irrigation, weather impact, and farming problems. Please send your crop issue, image, or voice note."
                 
@@ -313,6 +317,10 @@ def format_outcome(
                         farmer_response = "Gemini API اس وقت جواب نہیں دے رہی۔ براہ کرم تھوڑی دیر بعد دوبارہ کوشش کریں۔"
                     elif language_hint == "roman_urdu":
                         farmer_response = "Gemini API is waqt jawab nahi de rahi. Barah-e-karam thori dair baad dobara koshish karein."
+                    elif language_hint == "punjabi":
+                        farmer_response = "جیمنی اے پی آئی اس وقت جواب نہیں دے رہی۔ مہربانی کر کے تھوڑی دیر بعد دوبارہ کوشش کرو۔"
+                    elif language_hint == "siraiki":
+                        farmer_response = "جیمنی اے پی آئی ایں ویلے جواب نہیں دے رہی۔ مہربانی کر تے تھوڑی دیر بعد ولا کوشش کرو۔"
                     else: # english
                         farmer_response = "Gemini API is not responding right now. Please try again after a short while."
                     

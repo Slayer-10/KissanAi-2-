@@ -93,17 +93,21 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str, language_hint: str = No
         
         prompt = (
             "You are FarmAI's speech-to-text processor.\n"
-            "Your task is only to transcribe the farmer's voice note.\n"
+            "Your task is to transcribe the farmer's voice note and detect the spoken language.\n"
             "Do not answer the farming question.\n"
             "Do not give advice.\n"
-            "Return only the clean transcript text.\n\n"
+            "Identify whether the spoken language is one of: Urdu, Roman Urdu, English, Punjabi, or Siraiki.\n"
+            "You must return the output in the following format:\n"
+            "Language: <Detected Language>\n"
+            "Transcript: <Clean Transcript Text>\n\n"
             "Preserve language style:\n"
-            "- If the speaker uses Urdu, return Urdu script if possible.\n"
+            "- If the speaker uses Urdu, return Urdu script.\n"
             "- If the speaker uses English, return English.\n"
             "- If the speaker uses Roman Urdu style, return Roman Urdu.\n"
-            "- If speech is mixed, preserve the dominant style naturally.\n\n"
+            "- If the speaker uses Punjabi, return Punjabi meaning/script (in Shahmukhi/Urdu script).\n"
+            "- If the speaker uses Siraiki, return Siraiki meaning/script (in Shahmukhi/Urdu script).\n"
+            "- Keep transcript text clean, simple, and suitable for the existing analysis pipeline.\n\n"
             "Do not include markdown.\n"
-            "Do not include JSON in the transcript.\n"
             "Do not mention Gemini, backend, API, or model.\n"
             "If the audio is completely silent or unclear, reply with 'TRANSCRIPTION_FAILED'."
         )
@@ -118,12 +122,40 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str, language_hint: str = No
             }
             
             response = model.generate_content([prompt, audio_part], request_options={"timeout": 30.0})
-            transcript = response.text.strip() if response and hasattr(response, "text") else ""
+            raw_response = response.text.strip() if response and hasattr(response, "text") else ""
             
-            # Clean any markdown or wrapping the model might add
-            transcript = transcript.replace('**', '').replace('"', '').replace("'", "").strip()
+            if not raw_response or "TRANSCRIPTION_FAILED" in raw_response or len(raw_response) < 2:
+                return {
+                    "success": False,
+                    "transcript": "",
+                    "language_hint": "unknown",
+                    "error_type": "unclear_audio",
+                    "model_used": selected_model
+                }
             
-            if not transcript or "TRANSCRIPTION_FAILED" in transcript or len(transcript) < 2:
+            # Clean any markdown or wrapping
+            raw_response = raw_response.replace('**', '').replace('"', '').replace("'", "").strip()
+            
+            detected_lang = "unknown"
+            transcript = raw_response
+            
+            # Parse language and transcript
+            lang_match = re.search(r"Language:\s*(Urdu|Roman\s*Urdu|English|Punjabi|Siraiki)", raw_response, re.IGNORECASE)
+            transcript_match = re.search(r"Transcript:\s*(.*)", raw_response, re.IGNORECASE | re.DOTALL)
+            
+            if lang_match:
+                detected_lang = lang_match.group(1).strip().lower()
+                if detected_lang == "roman urdu":
+                    detected_lang = "roman_urdu"
+                elif detected_lang == "urdu":
+                    detected_lang = "ur"
+                    
+            if transcript_match:
+                transcript = transcript_match.group(1).strip()
+            else:
+                transcript = re.sub(r"^Language:\s*\w+\s*\n?", "", raw_response, flags=re.IGNORECASE).strip()
+                
+            if not transcript or len(transcript) < 2:
                 return {
                     "success": False,
                     "transcript": "",
@@ -132,17 +164,17 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str, language_hint: str = No
                     "model_used": selected_model
                 }
                 
-            from utils.helpers import detect_language
-            lang_detected = detect_language(transcript)
-            
-            # Keep consistent with urdu scripts mapping
-            if lang_detected in ("urdu", "ur"):
-                lang_detected = "ur"
+            if detected_lang == "unknown":
+                from utils.helpers import detect_language
+                lang_detected = detect_language(transcript)
+                if lang_detected in ("urdu", "ur"):
+                    lang_detected = "ur"
+                detected_lang = lang_detected
                 
             return {
                 "success": True,
                 "transcript": transcript,
-                "language_hint": lang_detected,
+                "language_hint": detected_lang,
                 "error_type": None,
                 "model_used": selected_model
             }

@@ -73,6 +73,69 @@ def pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
     return wav_io.getvalue()
 
 
+def extract_audio_bytes(response) -> bytes | None:
+    """Extract audio bytes from various candidate Gemini API response shapes."""
+    if not response or not hasattr(response, "candidates") or not response.candidates:
+        return None
+    
+    try:
+        candidate = response.candidates[0]
+        if not candidate.content or not hasattr(candidate.content, "parts") or not candidate.content.parts:
+            return None
+            
+        for part in candidate.content.parts:
+            # 1. Attribute inline_data
+            inline_data = getattr(part, "inline_data", None)
+            if inline_data:
+                data = getattr(inline_data, "data", None)
+                if data:
+                    if isinstance(data, bytes):
+                        return data
+                    elif isinstance(data, str):
+                        import base64
+                        try:
+                            return base64.b64decode(data)
+                        except Exception:
+                            pass
+            
+            # 2. Dictionary style inline_data or inlineData
+            if isinstance(part, dict):
+                inline_data = part.get("inline_data") or part.get("inlineData")
+                if inline_data:
+                    data = inline_data.get("data")
+                    if data:
+                        if isinstance(data, bytes):
+                            return data
+                        elif isinstance(data, str):
+                            import base64
+                            try:
+                                return base64.b64decode(data)
+                            except Exception:
+                                pass
+                                
+            # 3. Direct dictionary access on part object attributes
+            try:
+                # Check for inlineData attribute
+                inline_data = getattr(part, "inlineData", None)
+                if inline_data:
+                    data = getattr(inline_data, "data", None)
+                    if data:
+                        if isinstance(data, bytes):
+                            return data
+                        elif isinstance(data, str):
+                            import base64
+                            try:
+                                return base64.b64decode(data)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("Error during audio bytes extraction: %s", e)
+        
+    return None
+
+
 def generate_tts_audio(text: str, language_hint: str = None) -> dict:
     """
     Generates TTS audio from input text using Gemini API.
@@ -157,7 +220,7 @@ def generate_tts_audio(text: str, language_hint: str = None) -> dict:
 
         # Clean language hint
         lang_lower = str(active_lang).lower().strip()
-        if lang_lower in ("ur", "urdu"):
+        if lang_lower in ("ur", "urdu", "punjabi", "siraiki"):
             lang_instruction = "Read it with natural Urdu pronunciation."
         elif lang_lower == "roman_urdu":
             lang_instruction = "Read it in Pakistani Roman Urdu style, not English pronunciation."
@@ -168,12 +231,16 @@ def generate_tts_audio(text: str, language_hint: str = None) -> dict:
 
         system_prompt = (
             "You are a high-quality, natural Text-to-Speech engine.\n"
-            "Your only task is to read the provided text clearly, naturally, and fluently.\n"
+            "Your only task is to read the provided text aloud clearly, naturally, and fluently.\n"
+            "Return audio only. Do not generate any written text.\n"
             "Do not answer the user.\n"
             "Do not summarize.\n"
             "Do not translate.\n"
-            "Do not add extra advice.\n"
-            "Only speak the provided text.\n\n"
+            "Do not rewrite the text.\n"
+            "Do not simplify the text.\n"
+            "Do not convert the text to Roman script.\n"
+            "Do not add extra advice or commentary.\n"
+            "Only speak the provided text exactly as given.\n\n"
             "Voice style:\n"
             "* Friendly, calm, supportive, and clear.\n"
             "* Suitable for Pakistani farmers.\n"
@@ -209,6 +276,8 @@ def generate_tts_audio(text: str, language_hint: str = None) -> dict:
                 }
             }
             
+            logger.info("[TTS_DEBUG] language_hint=%s", active_lang)
+            logger.info("[TTS_DEBUG] tts_text_length=%d", len(cleaned_text))
             logger.info("Generating audio using model: %s, lang: %s", selected_model, active_lang)
             response = model.generate_content(
                 full_prompt,
@@ -216,14 +285,10 @@ def generate_tts_audio(text: str, language_hint: str = None) -> dict:
                 request_options={"timeout": 30.0}
             )
             
-            # Extract audio bytes
-            pcm_bytes = None
-            if response and len(response.candidates) > 0:
-                candidate = response.candidates[0]
-                if candidate.content and len(candidate.content.parts) > 0:
-                    part = candidate.content.parts[0]
-                    if hasattr(part, "inline_data") and part.inline_data:
-                        pcm_bytes = part.inline_data.data
+            # Extract audio bytes using robust helper
+            pcm_bytes = extract_audio_bytes(response)
+            
+            logger.info("[TTS_DEBUG] audio_bytes_found=%s", "true" if pcm_bytes else "false")
                         
             if not pcm_bytes:
                 logger.error("Model did not return valid inline audio bytes.")
@@ -245,6 +310,7 @@ def generate_tts_audio(text: str, language_hint: str = None) -> dict:
             with open(file_path, "wb") as f:
                 f.write(wav_bytes)
                 
+            logger.info("[TTS_DEBUG] file_created=true")
             logger.info("Saved generated TTS audio: %s", file_path)
             return {
                 "success": True,

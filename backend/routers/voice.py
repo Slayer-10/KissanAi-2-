@@ -6,6 +6,7 @@ from typing import Optional
 from services.stt_service import transcribe_audio
 from services.gemini_service import generate_safe_tts_summary
 from services.tts_service import generate_tts_audio
+from services.mandi_service import is_mandi_rate_query, handle_mandi_query
 
 from agents.input_parser import parse_input
 from agents.diagnosis_agent import generate_mock_diagnosis
@@ -154,6 +155,68 @@ async def voice_analyze(
         transcript = trans_res["transcript"]
         detected_lang = trans_res["language_hint"]
 
+        # ── Mandi Rate Intercept ─────────────────────────────────────────────────
+        if is_mandi_rate_query(transcript):
+            logger.info("[MANDI] intercepted in /voice-analyze")
+            mandi_result = handle_mandi_query(transcript, latitude, longitude)
+            mandi_farmer_response = mandi_result["farmer_response"]
+            mandi_tts_summary = mandi_result["tts_summary"]
+
+            # Generate TTS audio for mandi response
+            mandi_lang_hint = detected_lang if detected_lang not in (None, "unknown") else "ur"
+            tts_res = generate_tts_audio(mandi_tts_summary, mandi_lang_hint)
+            audio_url = None
+            tts_success = False
+
+            if tts_res.get("success"):
+                filename = tts_res["filename"]
+                base_url = str(request.base_url).rstrip('/')
+                audio_url = f"{base_url}/static/audio/{filename}"
+                tts_success = True
+            else:
+                # Retry once with urdu hint
+                retry_res = generate_tts_audio(mandi_tts_summary, "urdu")
+                if retry_res.get("success"):
+                    filename = retry_res["filename"]
+                    base_url = str(request.base_url).rstrip('/')
+                    audio_url = f"{base_url}/static/audio/{filename}"
+                    tts_success = True
+
+            return {
+                "status": "success",
+                "transcript": transcript,
+                "farmer_response": mandi_farmer_response,
+                "tts_summary": mandi_tts_summary,
+                "audio_url": audio_url,
+                "voice_status": {
+                    "audio_received": True,
+                    "transcription_success": True,
+                    "analysis_success": True,
+                    "tts_success": tts_success,
+                    "error_type": None,
+                },
+                "gemini_status": {
+                    "used": True,
+                    "success": True,
+                    "error_type": None,
+                    "model_used": trans_res.get("model_used"),
+                    "available_models": [],
+                    "tested_models": [trans_res.get("model_used")] if trans_res.get("model_used") else [],
+                    "working_model": trans_res.get("model_used"),
+                },
+                "diagnosis": {},
+                "action_chain": [],
+                "weather": {},
+                "irrigation_advice": {},
+                "before_after": {},
+                "cost_summary": {},
+                "agent_logs": [],
+                "contradictions": [],
+                "recovery": {"status": "stable", "actions": []},
+                "mandi_status": mandi_result.get("mandi_status"),
+            }
+        # ── End Mandi Rate Intercept ─────────────────────────────────────────────────
+
         # 3. Use Existing Analysis Logic (Pipeline)
         try:
             # 1. InputParser
@@ -229,7 +292,11 @@ async def voice_analyze(
             }
 
         # 4. Generate TTS Audio for voice response
-        tts_res = generate_tts_audio(tts_summary, parsed.get("language_hint"))
+        lang_hint = parsed.get("language_hint")
+        if lang_hint in ("punjabi", "siraiki"):
+            logger.info("[TTS_FLOW] regional_lang=%s", lang_hint)
+            
+        tts_res = generate_tts_audio(tts_summary, lang_hint)
         audio_url = None
         tts_success = False
         tts_error_type = None
@@ -237,13 +304,29 @@ async def voice_analyze(
         if tts_res.get("success"):
             filename = tts_res["filename"]
             base_url = str(request.base_url).rstrip('/')
-            if "localhost" not in base_url and "127.0.0.1" not in base_url and "192.168." not in base_url:
-                if base_url.startswith("http://"):
-                    base_url = "https://" + base_url[7:]
             audio_url = f"{base_url}/static/audio/{filename}"
             tts_success = True
+            if lang_hint in ("punjabi", "siraiki"):
+                logger.info("[TTS_FLOW] audio_created=true")
         else:
-            tts_error_type = tts_res.get("error_type", "tts_failed")
+            # Check if dialect is Punjabi or Siraiki to attempt simple retry with urdu hint
+            if lang_hint in ("punjabi", "siraiki"):
+                logger.info("[TTS_FLOW] normal_tts_no_audio=true")
+                logger.info("[TTS_FLOW] retrying_as_urdu=true")
+                
+                # Retry once using internal "urdu" hint (same text, no conversion)
+                retry_res = generate_tts_audio(tts_summary, "urdu")
+                if retry_res.get("success"):
+                    filename = retry_res["filename"]
+                    base_url = str(request.base_url).rstrip('/')
+                    audio_url = f"{base_url}/static/audio/{filename}"
+                    tts_success = True
+                    logger.info("[TTS_FLOW] audio_created=true")
+                else:
+                    tts_error_type = retry_res.get("error_type", "tts_failed")
+                    logger.info("[TTS_FLOW] audio_created=false")
+            else:
+                tts_error_type = tts_res.get("error_type", "tts_failed")
 
         return {
             "status": "success",
